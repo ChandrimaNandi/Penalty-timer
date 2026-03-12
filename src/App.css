@@ -350,6 +350,8 @@
   gap: 20px;
   padding: 24px;
   flex: 1;
+  overflow-y: auto;
+  max-height: calc(100vh - 200px);
 }
 
 /* Timer card */

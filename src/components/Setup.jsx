@@ -11,8 +11,8 @@ function Setup({ onComplete }) {
   function handleCountSubmit(e) {
     e.preventDefault()
     const n = parseInt(count, 10)
-    if (!n || n < 1 || n > 20) {
-      setError('Please enter a number between 1 and 20.')
+    if (!n || n < 1 || n > 100) {
+      setError('Please enter a number between 1 and 100.')
       return
     }
     setError('')
@@ -78,7 +78,7 @@ function Setup({ onComplete }) {
             <input
               type="number"
               min={1}
-              max={20}
+              max={100}
               value={count}
               onChange={(e) => setCount(e.target.value)}
               placeholder="e.g. 4"
