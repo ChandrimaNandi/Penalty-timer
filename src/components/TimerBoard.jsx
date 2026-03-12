@@ -161,6 +161,7 @@ function TimerBoard({ initialTeams, onReset }) {
         return { ...t, seconds: next, finished: next === 0, running: next === 0 ? false : t.running }
       })
     )
+    setSelectedIds([])
   }
 
   function handleAddTime() {
@@ -174,6 +175,7 @@ function TimerBoard({ initialTeams, onReset }) {
         return { ...t, seconds: t.seconds + secs, finished: false }
       })
     )
+    setSelectedIds([])
   }
 
   const allRunning = teams.every((t) => t.running || t.finished)
