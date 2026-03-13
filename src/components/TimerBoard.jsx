@@ -2,17 +2,27 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import TeamTimer from './TeamTimer.jsx'
 
 function TimerBoard({ initialTeams, onReset }) {
+  const mainInitialSeconds = initialTeams[0]?.seconds ?? 300
+  const [mainSeconds, setMainSeconds] = useState(mainInitialSeconds)
+  const [mainRunning, setMainRunning] = useState(false)
+  const [mainFinished, setMainFinished] = useState(false)
+  const [mainRounds, setMainRounds] = useState(0)
   const [teams, setTeams] = useState(() =>
-    initialTeams.map((t) => ({ ...t, running: false, finished: false }))
+    initialTeams.map((t) => ({
+      ...t,
+      penaltySeconds: 60,
+      penaltyFinished: false,
+      completedThisCycle: false,
+    }))
   )
   const [selectedIds, setSelectedIds] = useState([])
-  const [deductMins, setDeductMins] = useState('1')
-  const [deductSecs, setDeductSecs] = useState('0')
-  const [globalMins, setGlobalMins] = useState('5')
-  const [globalSecs, setGlobalSecs] = useState('0')
+  const [activePenaltyIds, setActivePenaltyIds] = useState([])
+  const [globalMins, setGlobalMins] = useState(String(Math.floor(mainInitialSeconds / 60)))
+  const [globalSecs, setGlobalSecs] = useState(String(mainInitialSeconds % 60))
   const intervalRef = useRef(null)
   const audioContextRef = useRef(null)
-  const alertedTeamsRef = useRef(new Set())
+  const cycleStartedRef = useRef(false)
+  const mainAlarmFiredRef = useRef(false)
 
   const initializeAudio = useCallback(() => {
     if (typeof window === 'undefined') return null
@@ -31,57 +41,124 @@ function TimerBoard({ initialTeams, onReset }) {
     return audioContextRef.current
   }, [])
 
-  const playAlarm = useCallback(() => {
+  const playMainAlarm = useCallback(() => {
     const context = initializeAudio()
     if (!context) return
 
     const startAt = context.currentTime
-    const tones = [740, 880, 1046, 880, 740, 1046]
+    const hornBursts = [0, 0.42, 0.84]
 
-    tones.forEach((frequency, index) => {
-      const toneStart = startAt + index * 0.2
-      const toneEnd = toneStart + 0.28
+    hornBursts.forEach((offset) => {
+      const toneStart = startAt + offset
+      const toneEnd = toneStart + 0.32
 
-      const mainOscillator = context.createOscillator()
+      const primaryOscillator = context.createOscillator()
       const supportOscillator = context.createOscillator()
       const gainNode = context.createGain()
 
-      mainOscillator.type = 'square'
-      mainOscillator.frequency.setValueAtTime(frequency, toneStart)
+      primaryOscillator.type = 'sawtooth'
+      primaryOscillator.frequency.setValueAtTime(1320, toneStart)
+      primaryOscillator.frequency.linearRampToValueAtTime(1180, toneEnd)
 
-      supportOscillator.type = 'triangle'
-      supportOscillator.frequency.setValueAtTime(frequency * 1.5, toneStart)
+      supportOscillator.type = 'square'
+      supportOscillator.frequency.setValueAtTime(880, toneStart)
+      supportOscillator.frequency.linearRampToValueAtTime(760, toneEnd)
 
       gainNode.gain.setValueAtTime(0.0001, toneStart)
-      gainNode.gain.exponentialRampToValueAtTime(0.3, toneStart + 0.03)
-      gainNode.gain.exponentialRampToValueAtTime(0.18, toneStart + 0.12)
+      gainNode.gain.exponentialRampToValueAtTime(0.38, toneStart + 0.03)
+      gainNode.gain.exponentialRampToValueAtTime(0.22, toneStart + 0.16)
       gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
 
-      mainOscillator.connect(gainNode)
+      primaryOscillator.connect(gainNode)
       supportOscillator.connect(gainNode)
       gainNode.connect(context.destination)
 
-      mainOscillator.start(toneStart)
+      primaryOscillator.start(toneStart)
       supportOscillator.start(toneStart)
-      mainOscillator.stop(toneEnd)
+      primaryOscillator.stop(toneEnd)
       supportOscillator.stop(toneEnd)
     })
   }, [initializeAudio])
 
-  // Master tick: runs every second, decrements running timers
+  const playPenaltyAlarm = useCallback(() => {
+    const context = initializeAudio()
+    if (!context) return
+
+    const startAt = context.currentTime
+    const beeps = [0, 0.18, 0.36]
+
+    beeps.forEach((offset) => {
+      const toneStart = startAt + offset
+      const toneEnd = toneStart + 0.12
+
+      const oscillator = context.createOscillator()
+      const gainNode = context.createGain()
+
+      oscillator.type = 'sine'
+      oscillator.frequency.setValueAtTime(988, toneStart)
+
+      gainNode.gain.setValueAtTime(0.0001, toneStart)
+      gainNode.gain.exponentialRampToValueAtTime(0.2, toneStart + 0.02)
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
+
+      oscillator.connect(gainNode)
+      gainNode.connect(context.destination)
+
+      oscillator.start(toneStart)
+      oscillator.stop(toneEnd)
+    })
+  }, [initializeAudio])
+
+  // Master tick: runs every second, decrements main timer and selected team penalties
   useEffect(() => {
     intervalRef.current = setInterval(() => {
-      setTeams((prev) =>
-        prev.map((t) => {
-          if (!t.running || t.finished) return t
-          const next = t.seconds - 1
-          if (next <= 0) return { ...t, seconds: 0, running: false, finished: true }
-          return { ...t, seconds: next }
+      const completedPenaltyIds = []
+
+      setMainSeconds((prev) => {
+        if (!mainRunning || mainFinished) return prev
+        const next = prev - 1
+        if (next <= 0) {
+          if (!mainAlarmFiredRef.current) {
+            mainAlarmFiredRef.current = true
+            playMainAlarm()
+          }
+          setMainRunning(false)
+          setMainFinished(true)
+          return 0
+        }
+        return next
+      })
+
+      setTeams((prev) => {
+        if (!mainRunning || mainFinished) return prev
+        return prev.map((t) => {
+          if (!activePenaltyIds.includes(t.id) || t.completedThisCycle) return t
+          const nextPenalty = t.penaltySeconds - 1
+          if (nextPenalty <= 0) {
+            completedPenaltyIds.push(t.id)
+            return {
+              ...t,
+              penaltySeconds: 60,
+              penaltyFinished: true,
+              completedThisCycle: true,
+            }
+          }
+          return {
+            ...t,
+            penaltySeconds: nextPenalty,
+            penaltyFinished: false,
+          }
         })
-      )
+      })
+
+      if (completedPenaltyIds.length > 0) {
+        setSelectedIds((prev) => prev.filter((id) => !completedPenaltyIds.includes(id)))
+        setActivePenaltyIds((prev) => prev.filter((id) => !completedPenaltyIds.includes(id)))
+        playPenaltyAlarm()
+      }
     }, 1000)
     return () => clearInterval(intervalRef.current)
-  }, [])
+  }, [mainRunning, mainFinished, activePenaltyIds, playPenaltyAlarm, playMainAlarm])
 
   useEffect(() => {
     return () => {
@@ -92,48 +169,63 @@ function TimerBoard({ initialTeams, onReset }) {
   }, [])
 
   useEffect(() => {
-    const newlyFinished = teams.filter(
-      (team) => team.finished && !alertedTeamsRef.current.has(team.id)
-    )
+    if (!mainFinished) return
 
-    if (newlyFinished.length > 0) {
-      newlyFinished.forEach((team) => alertedTeamsRef.current.add(team.id))
-      playAlarm()
+    setMainRounds((prev) => prev + 1)
+
+    const resetSeconds = (parseInt(globalMins, 10) || 0) * 60 + (parseInt(globalSecs, 10) || 0)
+    if (resetSeconds > 0) {
+      setMainSeconds(resetSeconds)
     }
-
-    teams.forEach((team) => {
-      if (!team.finished && alertedTeamsRef.current.has(team.id)) {
-        alertedTeamsRef.current.delete(team.id)
-      }
-    })
-  }, [teams, playAlarm])
-
-  const toggleTimer = useCallback((id) => {
-    initializeAudio()
-    setTeams((prev) =>
-      prev.map((t) =>
-        t.id === id ? { ...t, running: t.finished ? false : !t.running } : t
-      )
-    )
-  }, [initializeAudio])
+    setMainRunning(false)
+    setMainFinished(false)
+    setActivePenaltyIds([])
+    setTeams((prev) => prev.map((t) => ({ ...t, completedThisCycle: false, penaltyFinished: false })))
+    cycleStartedRef.current = false
+    mainAlarmFiredRef.current = false
+  }, [mainFinished, globalMins, globalSecs])
 
   function startAll() {
     initializeAudio()
-    setTeams((prev) => prev.map((t) => ({ ...t, running: t.finished ? false : true })))
+    if (mainSeconds <= 0) return
+    if (!cycleStartedRef.current) {
+      const nextActivePenaltyIds = selectedIds.filter((id) => {
+        const team = teams.find((t) => t.id === id)
+        return team && !team.completedThisCycle
+      })
+
+      setActivePenaltyIds(nextActivePenaltyIds)
+      setSelectedIds([])
+      cycleStartedRef.current = true
+    }
+    setMainRunning(true)
   }
 
   function pauseAll() {
     initializeAudio()
-    setTeams((prev) => prev.map((t) => ({ ...t, running: false })))
+    setMainRunning(false)
   }
 
   function resetAll() {
     initializeAudio()
     const newTime = parseInt(globalMins, 10) * 60 + parseInt(globalSecs, 10)
     if (newTime > 0) {
+      setMainSeconds(newTime)
+      setMainRunning(false)
+      setMainFinished(false)
+      mainAlarmFiredRef.current = false
+      cycleStartedRef.current = false
       setTeams((prev) =>
-        prev.map((t) => ({ ...t, seconds: newTime, running: false, finished: false }))
+        prev.map((t) => ({
+          ...t,
+          penaltySeconds: 60,
+          penaltyFinished: false,
+          completedThisCycle: false,
+        }))
       )
+      setSelectedIds([])
+      setActivePenaltyIds([])
+      setMainRounds(0)
     }
   }
 
@@ -149,37 +241,8 @@ function TimerBoard({ initialTeams, onReset }) {
     setSelectedIds([])
   }
 
-  function handleDeduct() {
-    initializeAudio()
-    if (selectedIds.length === 0) return
-    const secs = (parseInt(deductMins, 10) || 0) * 60 + (parseInt(deductSecs, 10) || 0)
-    if (secs <= 0) return
-    setTeams((prev) =>
-      prev.map((t) => {
-        if (!selectedIds.includes(t.id)) return t
-        const next = Math.max(0, t.seconds - secs)
-        return { ...t, seconds: next, finished: next === 0, running: next === 0 ? false : t.running }
-      })
-    )
-    setSelectedIds([])
-  }
-
-  function handleAddTime() {
-    initializeAudio()
-    if (selectedIds.length === 0) return
-    const secs = (parseInt(deductMins, 10) || 0) * 60 + (parseInt(deductSecs, 10) || 0)
-    if (secs <= 0) return
-    setTeams((prev) =>
-      prev.map((t) => {
-        if (!selectedIds.includes(t.id)) return t
-        return { ...t, seconds: t.seconds + secs, finished: false }
-      })
-    )
-    setSelectedIds([])
-  }
-
-  const allRunning = teams.every((t) => t.running || t.finished)
-  const allPaused = teams.every((t) => !t.running)
+  const allRunning = mainRunning
+  const allPaused = !mainRunning
   const selectedTeams = teams.filter((t) => selectedIds.includes(t.id))
 
   return (
@@ -230,7 +293,7 @@ function TimerBoard({ initialTeams, onReset }) {
         </div>
       </div>
 
-      {/* Penalty / add time panel */}
+      {/* Penalty selection panel */}
       <div className="penalty-panel">
         <div className="penalty-left">
           <label className="control-label">Penalty targets:</label>
@@ -245,54 +308,31 @@ function TimerBoard({ initialTeams, onReset }) {
         </div>
 
         <div className="penalty-time">
-          <input
-            type="number"
-            min={0}
-            value={deductMins}
-            onChange={(e) => setDeductMins(e.target.value)}
-            className="small-input"
-          />
-          <span className="sep">m</span>
-          <input
-            type="number"
-            min={0}
-            max={59}
-            value={deductSecs}
-            onChange={(e) => setDeductSecs(e.target.value)}
-            className="small-input"
-          />
-          <span className="sep">s</span>
-        </div>
-
-        <div className="penalty-btns">
-          <button
-            className="btn-red"
-            onClick={handleDeduct}
-            disabled={selectedIds.length === 0}
-            title="Deduct time from selected teams"
-          >
-            Deduct Time
-          </button>
-          <button
-            className="btn-green"
-            onClick={handleAddTime}
-            disabled={selectedIds.length === 0}
-            title="Add time to selected teams"
-          >
-            Add Time
-          </button>
+          <span className="control-label">Penalty per team:</span>
+          <span className="selection-summary">01:00 fixed</span>
         </div>
 
         {selectedTeams.length > 0 && (
           <div className="selected-badge">
             {selectedTeams.map((team) => (
               <span key={team.id} className="selected-chip">
-                <span style={{ color: team.finished ? '#ef4444' : '#22c55e' }}>●</span>
+                <span style={{ color: '#22c55e' }}>●</span>
                 {team.name}
               </span>
             ))}
           </div>
         )}
+      </div>
+
+      <div className={`main-timer-card ${mainFinished ? 'main-timer-finished' : ''}`}>
+        <span className="main-timer-card-label">Main Timer</span>
+        <div className="main-timer-card-value-wrap">
+          <span className="main-timer-dot" aria-hidden="true">●</span>
+          <span className="main-timer-value">
+            {String(Math.floor(mainSeconds / 60)).padStart(2, '0')}:{String(mainSeconds % 60).padStart(2, '0')}
+          </span>
+        </div>
+        <span className="main-timer-card-label">Rounds run: {mainRounds}</span>
       </div>
 
       {/* Timer grid */}
@@ -302,8 +342,9 @@ function TimerBoard({ initialTeams, onReset }) {
             key={team.id}
             team={team}
             isSelected={selectedIds.includes(team.id)}
+            penaltiesActive={mainRunning && !mainFinished}
+            isActivePenalty={activePenaltyIds.includes(team.id)}
             onSelect={() => toggleSelectedTeam(team.id)}
-            onToggle={() => toggleTimer(team.id)}
           />
         ))}
       </div>

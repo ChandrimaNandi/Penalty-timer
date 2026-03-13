@@ -251,6 +251,49 @@
   gap: 10px;
 }
 
+.main-timer-dot {
+  color: var(--green);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.main-timer-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+
+.main-timer-finished .main-timer-dot,
+.main-timer-finished .main-timer-value {
+  color: var(--red);
+}
+
+.main-timer-card {
+  margin: 16px 24px 0;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 8px 16px rgba(191, 56, 83, 0.08);
+}
+
+.main-timer-card-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.main-timer-card-value-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .reset-group {
   display: flex;
   align-items: center;
@@ -385,6 +428,13 @@
   background: #fff0f3;
 }
 
+.timer-card-penalty-active {
+  background: rgba(220, 38, 38, 0.13) !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18) !important;
+  transition: background 0.3s, border-color 0.3s;
+}
+
 .timer-card-header {
   display: flex;
   align-items: center;
@@ -489,6 +539,12 @@
   text-align: center;
   font-weight: 600;
   letter-spacing: 0.5px;
+}
+
+.penalty-caption {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 /* Shared buttons */

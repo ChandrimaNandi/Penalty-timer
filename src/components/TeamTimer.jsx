@@ -18,24 +18,24 @@ function getColor(seconds, maxSeconds) {
   return '#ef4444'
 }
 
-function TeamTimer({ team, isSelected, onSelect, onToggle }) {
-  const { name, seconds, running, finished } = team
+function TeamTimer({ team, isSelected, penaltiesActive, isActivePenalty, onSelect }) {
+  const { name, penaltySeconds } = team
 
-  const progressColor = getColor(seconds, team.initialSeconds ?? seconds)
+  const progressColor = getColor(penaltySeconds, 60)
+  const penaltyRunning = isActivePenalty && penaltiesActive
 
   let statusLabel = 'PAUSED'
   let statusClass = 'status-paused'
-  if (finished) {
-    statusLabel = 'TIME UP'
-    statusClass = 'status-finished'
-  } else if (running) {
+  if (penaltyRunning) {
     statusLabel = 'RUNNING'
     statusClass = 'status-running'
+  } else if (isSelected && (!penaltiesActive || !isActivePenalty)) {
+    statusLabel = 'WAITING'
   }
 
   return (
     <div
-      className={`timer-card ${isSelected ? 'timer-card-selected' : ''} ${finished ? 'timer-card-finished' : ''}`}
+      className={`timer-card ${isSelected ? 'timer-card-selected' : ''} ${penaltyRunning ? 'timer-card-penalty-active' : ''}`}
       onClick={onSelect}
     >
       <div className="timer-card-header">
@@ -45,25 +45,22 @@ function TeamTimer({ team, isSelected, onSelect, onToggle }) {
 
       <div
         className="timer-display"
-        style={{ color: finished ? '#ef4444' : running ? '#22c55e' : '#e2e8f0' }}
+        style={{ color: progressColor }}
       >
-        {formatTime(seconds)}
+        {formatTime(penaltySeconds)}
       </div>
 
-      <button
-        className={`timer-toggle-btn ${running ? 'btn-pause-card' : 'btn-start-card'} ${finished ? 'btn-finished-card' : ''}`}
-        onClick={(e) => {
-          e.stopPropagation()
-          if (!finished) onToggle()
-        }}
-        disabled={finished}
-      >
-        {finished ? 'TIME UP' : running ? 'Pause' : 'Start'}
-      </button>
+      <div className="selected-indicator">
+        {isSelected
+          ? penaltiesActive && isActivePenalty
+            ? 'Penalty running'
+            : penaltiesActive
+              ? 'Starts next main timer'
+              : 'Waiting for main timer'
+          : 'Click to select penalty'}
+      </div>
 
-      {isSelected && !finished && (
-        <div className="selected-indicator">✓ Selected for penalty</div>
-      )}
+      <div className="penalty-caption">Penalty timer (fixed): 01:00</div>
     </div>
   )
 }
